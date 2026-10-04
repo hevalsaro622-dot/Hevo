@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>أسعار الدكان</title>
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0;
+  font-family:Arial,Tahoma,sans-serif;
+  background:#f5f6f8;
+  color:#222;
+}
+.app{
+  max-width:700px;
+  margin:0 auto;
+  padding:22px 14px 40px;
+}
+h1{
+  text-align:center;
+  font-size:25px;
+  margin:8px 0 22px;
+}
+.card{
+  background:white;
+  border-radius:14px;
+  padding:16px;
+  box-shadow:0 2px 10px #0000000d;
+  margin-bottom:16px;
+}
+input,button{
+  width:100%;
+  height:46px;
+  border-radius:10px;
+  border:1px solid #ddd;
+  font-size:16px;
+}
+input{padding:0 13px;outline:none}
+input:focus{border-color:#888}
+.row{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+  margin-top:10px;
+}
+button{
+  margin-top:10px;
+  border:0;
+  background:#222;
+  color:white;
+  cursor:pointer;
+}
+button.delete{
+  width:auto;
+  height:36px;
+  padding:0 12px;
+  margin:0;
+  background:#eee;
+  color:#555;
+}
+.products{display:flex;flex-direction:column;gap:9px}
+
+.name{font-weight:bold}
+.price{font-size:14px;color:#555}
+.search{margin-bottom:12px}
+.empty{text-align:center;color:#888;padding:20px}
+@media(max-width:500px){
+  .product{grid-template-columns:58px 1fr}
+ .price{grid-column:1/2}
+ .delete{grid-column:2/3;grid-row:1/3}
+}
+@media(max-width:500px){
+  }
+
+
+
+
+
+.product{
+  background:white;
+  border-radius:12px;
+  padding:10px;
+  display:flex;
+  align-items:center;
+  gap:12px;
+  border:1px solid #eee;
+  min-height:78px;
+}
+.thumb{
+  flex:0 0 58px;
+  width:58px;
+  height:58px;
+  object-fit:cover;
+  border-radius:9px;
+  background:#f0f0f0;
+  cursor:pointer;
+  display:block;
+}
+.product-info{
+  flex:1;
+  min-width:0;
+  text-align:right;
+}
+.product-info .name{
+  margin-bottom:5px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.photo-modal{
+  display:none;
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,.82);
+  z-index:9999;
+  align-items:center;
+  justify-content:center;
+  padding:20px;
+}
+.photo-modal img{
+  max-width:92vw;
+  max-height:86vh;
+  object-fit:contain;
+  border-radius:14px;
+}
+.photo-close{
+  position:fixed;
+  top:18px;
+  left:18px;
+  width:44px;
+  height:44px;
+  border:0;
+  border-radius:50%;
+  background:white;
+  color:#222;
+  font-size:28px;
+  line-height:44px;
+  padding:0;
+  margin:0;
+  cursor:pointer;
+  z-index:10000;
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>أسعار الدكان</h1><div id="dbStatus" style="text-align:center;color:#777;font-size:13px;margin-top:-12px;margin-bottom:14px">حفظ محلي • يعمل بدون إنترنت</div>
+
+  <div class="card">
+    <input id="name" placeholder="اسم المنتج — مثل: بيبسي 330مل">
+    <input id="photo" type="file" accept="image/*" style="margin-top:10px;padding:10px;height:auto">
+    <div class="row">
+      <input id="wholesale" type="number" step="0.01" placeholder="سعر الجملة">
+      <input id="sale" type="number" step="0.01" placeholder="السعر الذي نعطيه">
+    </div>
+    <button onclick="addProduct()">إضافة المنتج</button>
+  </div>
+
+  <input class="search" id="search" placeholder="ابحث عن منتج..." oninput="render()">
+
+  <div id="products" class="products"></div>
+</div>
+
+
+<div id="photoModal" class="photo-modal" onclick="closePhoto()">
+  <button class="photo-close" onclick="event.stopPropagation();closePhoto()" aria-label="إغلاق">×</button>
+  <img id="largePhoto" src="" alt="" onclick="event.stopPropagation()">
+</div>
+<script>
+let products = [];
+let db = null;
+
+const DB_NAME = "ShopPricesDB";
+const DB_VERSION = 1;
+const STORE = "products";
+
+function openDB(){
+  return new Promise((resolve, reject)=>{
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+    request.onupgradeneeded = (event)=>{
+      const database = event.target.result;
+      if(!database.objectStoreNames.contains(STORE)){
+        const store = database.createObjectStore(STORE, {keyPath:"id"});
+        store.createIndex("name", "name", {unique:false});
+      }
+    };
+
+    request.onsuccess = ()=>resolve(request.result);
+    request.onerror = ()=>reject(request.error);
+  });
+}
+
+function getAllProducts(){
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(STORE, "readonly");
+    const req = tx.objectStore(STORE).getAll();
+    req.onsuccess = ()=>resolve(req.result || []);
+    req.onerror = ()=>reject(req.error);
+  });
+}
+
+function putProduct(product){
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(STORE, "readwrite");
+    tx.objectStore(STORE).put(product);
+    tx.oncomplete = resolve;
+    tx.onerror = ()=>reject(tx.error);
+  });
+}
+
+function deleteProductFromDB(id){
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(STORE, "readwrite");
+    tx.objectStore(STORE).delete(id);
+    tx.oncomplete = resolve;
+    tx.onerror = ()=>reject(tx.error);
+  });
+}
+
+async function save(){
+  for(const product of products){
+    await putProduct(product);
+  }
+}
+
+async function initDatabase(){
+  try{
+    db = await openDB();
+    products = await getAllProducts();
+
+    // نقل البيانات القديمة من localStorage مرة واحدة
+    if(products.length === 0){
+      try{
+        const old = JSON.parse(localStorage.getItem("shopProducts") || "[]");
+        if(old.length){
+          products = old;
+          for(const product of old) await putProduct(product);
+          localStorage.removeItem("shopProducts");
+        }
+      }catch(e){}
+    }
+
+    render();
+  }catch(e){
+    console.error(e);
+    alert("تعذر تشغيل قاعدة البيانات المحلية.");
+  }
+}
+
+function save(){
+  localStorage.setItem("shopProducts", JSON.stringify(products));
+}
+
+function addProduct(){
+  const name = document.getElementById("name").value.trim();
+  const wholesale = document.getElementById("wholesale").value;
+  const sale = document.getElementById("sale").value;
+  const file = document.getElementById("photo").files[0];
+
+  if(!name){
+    alert("اكتب اسم المنتج");
+    return;
+  }
+
+  const finish = async (photo) => {
+    const product = {
+      id: Date.now(),
+      name,
+      wholesale: wholesale || "-",
+      sale: sale || "-",
+      photo: photo || ""
+    };
+
+    try {
+      products.unshift(product);
+      try{
+        await putProduct(product);
+      }catch(e){
+        products.shift();
+        alert("تعذر حفظ المنتج في قاعدة البيانات المحلية.");
+        return;
+      }
+    } catch(e) {
+      products.shift();
+      alert("الصورة كبيرة جدًا. جرّب صورة ثانية أصغر.");
+      return;
+    }
+
+    document.getElementById("name").value = "";
+    document.getElementById("wholesale").value = "";
+    document.getElementById("sale").value = "";
+    document.getElementById("photo").value = "";
+    document.getElementById("name").focus();
+    render();
+  };
+
+  if(!file){
+    finish("");
+    return;
+  }
+
+  // تصغير وضغط الصورة حتى تنحفظ بدون مشاكل في المتصفح
+  const reader = new FileReader();
+  reader.onload = function(){
+    const img = new Image();
+    img.onload = function(){
+      const max = 900;
+      let w = img.width, h = img.height;
+      if(w > max || h > max){
+        if(w > h){ h = Math.round(h * max / w); w = max; }
+        else { w = Math.round(w * max / h); h = max; }
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, w, h);
+
+      const compressed = canvas.toDataURL("image/jpeg", 0.78);
+      finish(compressed);
+    };
+    img.onerror = function(){
+      alert("تعذر قراءة الصورة.");
+    };
+    img.src = reader.result;
+  };
+  reader.onerror = function(){
+    alert("تعذر قراءة الصورة.");
+  };
+  reader.readAsDataURL(file);
+}
+async function removeProduct(id){
+  products = products.filter(p=>p.id!==id);
+  try{
+    if(db) await deleteProductFromDB(id);
+  }catch(e){
+    console.error(e);
+  }
+  render();
+}
+function render(){
+  const q=document.getElementById("search").value.trim().toLowerCase();
+  const box=document.getElementById("products");
+  const list=products.filter(p=>p.name.toLowerCase().includes(q));
+
+  if(!list.length){
+    box.innerHTML='<div class="empty">لا يوجد منتجات</div>';
+    return;
+  }
+
+  box.innerHTML=list.map(p=>`
+    <div class="product">
+      ${p.photo
+        ? `<img class="thumb" src="${p.photo}" alt="" onclick="openPhoto(this.src)">`
+        : `<div class="thumb"></div>`}
+      <div class="product-info">
+        <div class="name">${escapeHtml(p.name)}</div>
+        <div class="price">جملة: ${escapeHtml(p.wholesale)}</div>
+        <div class="price">سعرنا: ${escapeHtml(p.sale)}</div>
+      </div>
+      <button class="delete" onclick="removeProduct(${p.id})">حذف</button>
+    </div>
+  `).join("");
+}
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g,m=>({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+  }[m]));
+}
+
+document.getElementById("name").addEventListener("keydown",e=>{
+  if(e.key==="Enter") addProduct();
+});
+document.getElementById("wholesale").addEventListener("keydown",e=>{
+  if(e.key==="Enter") addProduct();
+});
+document.getElementById("sale").addEventListener("keydown",e=>{
+  if(e.key==="Enter") addProduct();
+});
+
+initDatabase();
+</script>
+</body>
+</html>
